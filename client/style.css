@@ -1,0 +1,23 @@
+html, body {
+  background-color:#282c34;
+  margin:0;
+  padding:0;
+  display:flex;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas {
+  /*border:3px solid #9da5b4;*/
+  border-radius:7px;
+  /*background-color:#21252b;*/
+}
+
+.flex {
+  display:flex;
+  align-items: flex-start;
+  flex-direction: column;
+  flex-wrap:wrap;
+  width:1060px;
+  height:700px;
+}
