@@ -1,3 +1,10 @@
+function sendData() {
+  socket.emit('playerConnected');
+  document.getElementById('start').innerHTML = "Waiting for Player 2";
+  document.getElementById("start").style.width = "300px";
+  document.getElementById('start').disabled = 'disabled';
+  console.log("hello");
+}
 window.onload = function playTetris()  {
   //HTML STUFF
   var container = document.getElementById('container');
@@ -9,8 +16,14 @@ window.onload = function playTetris()  {
   var ct2 = container2.getContext('2d');
   var ctPre2 = preview2.getContext('2d');
   var playerOne = false;
-  socket.on('1', function() {
-    playerOne = true;
+  var startGame = false;
+  var id = 0;
+  var opp = 0;
+  socket.on('BPCONNECTED', function(data) {
+    console.log("reached");
+    beginGame();
+    document.getElementById('overlay').style.opacity = "0";
+    id = data;
   });
   //PREVIEW PARAMETERS
   var PREVIEW_WIDTH = 4;
@@ -22,6 +35,12 @@ window.onload = function playTetris()  {
   var board = [];
   var boardColor = "#21252b"
   var clearLines = [];
+  var continueCombo = false;
+  var comboChart = [0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5];
+  var garbage = 0;
+  var linesRecieved = 0;
+  var sentLines = 0;
+  var comboCounter = 0;
   //PIECES - O || S || I || T || Z || J || L
   var colours = ["#E5DB4E", "#CC51D1", "#CC3E2E", "#3B55DB", "#DBBD81", "#35C4C4", "#3CB221"];
   var currPiece;
@@ -210,10 +229,9 @@ window.onload = function playTetris()  {
   var move_down = false;
   var shift = false;
   //INTERVAL FUNCTIONS
-  var timeoutHandle;
-  //set Keylisteners
-  window.addEventListener("keyup", keyUp, false);
-  window.addEventListener("keydown", keyDown, false);
+  var gravityHandle;
+  var updateHandle;
+  var listenerHandle;
   //Reset Values
   function resetVal() {
     orientation = 0;
@@ -243,6 +261,8 @@ window.onload = function playTetris()  {
   function initPreview() {
     ctPre.fillStyle = boardColor;
     roundRect(ctPre, 0, 0, PREVIEW_WIDTH * BLOCKSIDE, PREVIEW_HEIGHT * BLOCKSIDE, 7, boardColor);
+    ctPre2.fillStyle = boardColor;
+    roundRect(ctPre2, 0, 0, PREVIEW_WIDTH * BLOCKSIDE, PREVIEW_HEIGHT * BLOCKSIDE, 7, boardColor);
   }
   //set colours
   function setColor(color) {
@@ -318,7 +338,7 @@ window.onload = function playTetris()  {
     outer: for (x = currPiece_row; x < BOARD_HEIGHT; x++) {
       for (var row = 0; row < currPieceArr.length; row++) {
         for (var col = 0; col < currPieceArr[row].length; col++) {
-          if (currPieceArr[row][col] > 0 && board[x + row][currPiece_column + col] <  0) {
+          if (currPieceArr[row][col] > 0 && (board[x + row + garbage][currPiece_column + col] <  0 || x + row > BOARD_HEIGHT - garbage - 1)) {
             x--;
             break outer;
           }
@@ -330,6 +350,63 @@ window.onload = function playTetris()  {
         if (currPieceArr[row][col] > 0)
         roundRect(ct, (currPiece_column + col) * BLOCKSIDE, (x + row) * BLOCKSIDE, BLOCKSIDE, BLOCKSIDE, ROUNDING, 0, "#EEE");
       }
+    }
+  }
+  function drawOpp(data) {
+    var arr = data.array;
+    var oppArr = pieces[data.curr][data.orient];
+    //Clear
+    ct2.fillStyle = boardColor;
+    ct2.fillRect(0, 0, BOARD_WIDTH * BLOCKSIDE, BOARD_HEIGHT * BLOCKSIDE);
+    //Draw ploced pieces
+    for (var row = 0; row < BOARD_HEIGHT; row++) {
+      for (var col = 0; col < BOARD_WIDTH; col++) {
+        if (arr[row][col] < 0) {
+          ct2.fillStyle = colours[-arr[row][col] - 1];
+          roundRect(ct2, col * BLOCKSIDE, (row - data.garbage) * BLOCKSIDE, BLOCKSIDE, BLOCKSIDE, ROUNDING, 1);
+        }
+      }
+    }
+    //Draw curr piece
+    ct2.fillStyle = colours[data.curr];
+    for (var row = 0; row < oppArr.length; row++) {
+      for (var col = 0; col < oppArr[row].length; col++) {
+        if (oppArr[row][col] != 0)
+        roundRect(ct2, (data.currX + col) * BLOCKSIDE, (data.currY + row) * BLOCKSIDE, BLOCKSIDE, BLOCKSIDE, ROUNDING, 1);
+      }
+    }
+    ct2.fillStyle = "#888";
+    for (var row = BOARD_HEIGHT - data.garbage; row < BOARD_HEIGHT; row++) {
+      roundRect(ct2, 0, (row) * BLOCKSIDE, BOARD_WIDTH * BLOCKSIDE, BLOCKSIDE, ROUNDING, 1);
+    }
+    //draw heldPiece
+    if (data.held > -1) {
+    ctPre2.fillStyle = boardColor;
+    roundRect(ctPre2, 0, 0, PREVIEW_WIDTH * BLOCKSIDE, PREVIEW_HEIGHT * BLOCKSIDE, 7, boardColor);
+    var heldPieceArr = basePieces[data.held];
+    var drCol = Math.floor((PREVIEW_WIDTH * BLOCKSIDE - heldPieceArr[0].length  * BLOCKSIDE)/2);
+    var drRow = Math.floor((PREVIEW_HEIGHT * BLOCKSIDE - heldPieceArr.length * BLOCKSIDE)/2);
+    for (var row = 0; row < heldPieceArr.length; row++) {
+      for (var col = 0; col < heldPieceArr[row].length; col++) {
+        if (heldPieceArr[row][col] > 0) {
+          ctPre2.fillStyle = colours[data.held];
+          roundRect(ctPre2, (drCol + col * BLOCKSIDE), (drRow + row * BLOCKSIDE), BLOCKSIDE, BLOCKSIDE, 7, colours[data.held]);
+        }
+      }
+    }
+    }
+    //Draw Lines
+    ct2.strokeStyle = "#282c34";
+    ct2.lineWidth = 1;
+    for (var x = 1; x < BOARD_WIDTH; x++) {
+      ct2.moveTo(x * BLOCKSIDE, 0);
+      ct2.lineTo(x * BLOCKSIDE, BLOCKSIDE * BOARD_HEIGHT);
+      ct2.stroke();
+    }
+    for (var x = 1; x < BOARD_HEIGHT; x++) {
+      ct2.moveTo(0, x * BLOCKSIDE);
+      ct2.lineTo(BLOCKSIDE * BOARD_WIDTH, x * BLOCKSIDE);
+      ct2.stroke();
     }
   }
   //Generate Pieces
@@ -362,9 +439,13 @@ window.onload = function playTetris()  {
       for (var col = 0; col < BOARD_WIDTH; col++) {
         if (board[row][col] < 0) {
           ct.fillStyle = colours[-board[row][col] - 1];
-          roundRect(ct, col * BLOCKSIDE, row * BLOCKSIDE, BLOCKSIDE, BLOCKSIDE, ROUNDING, 1);
+          roundRect(ct, col * BLOCKSIDE, (row - garbage) * BLOCKSIDE, BLOCKSIDE, BLOCKSIDE, ROUNDING, 1);
         }
       }
+    }
+          ct.fillStyle = "#888";
+    for (var row = BOARD_HEIGHT - garbage; row < BOARD_HEIGHT; row++) {
+          roundRect(ct, 0, (row) * BLOCKSIDE, BOARD_WIDTH * BLOCKSIDE, BLOCKSIDE, ROUNDING, 1);
     }
   }
   //Rotation error checking
@@ -409,7 +490,6 @@ window.onload = function playTetris()  {
   function translation(row, col) {
     for (var y = 0; y < currPieceArr.length; y++) {
       for (var x = 0; x < currPieceArr[y].length; x++) {
-        console.log(currPiece);
         if (board[row + y][col + x] < 0 && currPieceArr[y][x] > 0)
         return false;
       }
@@ -418,6 +498,8 @@ window.onload = function playTetris()  {
   }
   //Keylisteners
   function keyDown(e) {
+    if (id != 0);
+    updateOpp();
     if (e.keyCode == LEFT) {
       if (currPiece_column + leftAdjustment[currPiece][orientation] > 0) {
         move_left = translation(currPiece_row, currPiece_column - 1);
@@ -443,6 +525,7 @@ window.onload = function playTetris()  {
       }
     }
     if (e.keyCode == SHIFT) {
+      console.log("CURRPIECE" + currPiece);
       if (!shift) {
         shift = true;
         if (heldPiece < 0) {
@@ -472,6 +555,8 @@ window.onload = function playTetris()  {
     }
   }
   function keyUp(e) {
+    if (id != 0)
+    updateOpp();
     move_left = false;
     move_right = false;
     move_down = false;
@@ -479,24 +564,16 @@ window.onload = function playTetris()  {
   function updateOpp() {
     var pack = [];
     pack.push({
-      player:playerOne,
-      array:board
+      player:id,
+      array:board,
+      curr:currPiece,
+      currX:currPiece_column,
+      currY:currPiece_row,
+      orient:orientation,
+      held:heldPiece,
+      garbage:garbage
     });
     socket.emit("array", pack);
-    socket.on("oppositeArray", function(data) {
-      console.log(data[0].player + " " + playerOne);
-      if (data[0].player != playerOne) {
-        arr = data[0].array;
-        for (var row = 0; row < BOARD_HEIGHT; row++) {
-          for (var col = 0; col < BOARD_WIDTH; col++) {
-            if (arr[row][col] < 0) {
-              ct2.fillStyle = colours[-arr[row][col] - 1];
-              roundRect(ct2, col * BLOCKSIDE, row * BLOCKSIDE, BLOCKSIDE, BLOCKSIDE, ROUNDING, 1);
-            }
-          }
-      }
-    }
-    });
   }
   //update
   function update() {
@@ -504,7 +581,6 @@ window.onload = function playTetris()  {
     initLines();
     drawGhost();
     drawBlock();
-    updateOpp();
   }
   //gravity
   function applyGrav() {
@@ -512,7 +588,7 @@ window.onload = function playTetris()  {
     var apply = true;
     for (var row = 0; row < currPieceArr.length; row++) {
       for (var col = 0; col < currPieceArr[row].length; col++) {
-        if (currPieceArr[row][col] > 0 && board[potRow + row][currPiece_column + col] <  0) {
+        if (currPieceArr[row][col] > 0 && (board[potRow + row + garbage][currPiece_column + col] < 0 || potRow + row > BOARD_HEIGHT - garbage - 1)) {
           apply = false;
           break;
         }
@@ -525,7 +601,7 @@ window.onload = function playTetris()  {
       for (var row = 0; row < currPieceArr.length; row++) {
         for (var col = 0; col < currPieceArr[row].length; col++) {
           if (currPieceArr[row][col] > 0)
-          board[currPiece_row + row][currPiece_column + col] = -(currPiece + 1);
+          board[currPiece_row + row + garbage][currPiece_column + col] = -(currPiece + 1);
         }
       }
       for (var row = 0; row < BOARD_HEIGHT; row++) {
@@ -539,12 +615,44 @@ window.onload = function playTetris()  {
           update();
           incr = 0;
           clearLines.push(row);
-          // board.splice(row, 1);
-          // board.unshift([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         }
+      }
+      if (clearLines.length > 0) {
+        console.log(clearLines.length);
+        if (!continueCombo) {
+          comboCounter = 0;
+        }
+        else {
+          comboCounter++;
+        }
+        if (comboCounter >= 12)
+        comboCounter = 11
+        continueCombo = true;
+        if (garbage >=   clearLines.length + comboChart[comboCounter]) {
+          garbage -= clearLines.length + comboChart[comboCounter];
+        }
+        else {
+          lineSent = clearLines.length + comboChart[comboCounter] - garbage - (clearLines.length==4?0:1);
+                    console.log(clearLines.length + comboChart[comboCounter]);
+          garbage = 0;
+          if (lineSent > 0) {
+            console.log(lineSent);
+            console.log(garbage);
+            var pack = [];
+            pack.push({lines:lineSent,
+                       player:id});
+            socket.emit("lineSent", pack);
+            lineSent = 0;
+          }
+        }
+      }
+      else {
+        continueCombo = false;
       }
       genPiece();
       shift = false;
+      garbage += linesRecieved;
+      linesRecieved = 0;
       return true;
     }
   }
@@ -558,14 +666,13 @@ window.onload = function playTetris()  {
   function clearing() {
     incr += 0.1;
     for (var y = 0; y < clearLines.length; y++) {
-      var row = clearLines[y];
+      var row = clearLines[y] - garbage;
+      if (garbage) row--;
       for (var x = 0; x < board[row].length; x++) {
-        console.log("CLEARING");
         ct.fillStyle = boardColor;
         roundRect(ct, x * BLOCKSIDE + BLOCKSIDE/2 - BLOCKSIDE * incr/2, row * BLOCKSIDE + BLOCKSIDE/2 - BLOCKSIDE * incr/2, BLOCKSIDE * incr , BLOCKSIDE * incr, ROUNDING, 1);
       }
     }
-    console.log(incr);
     if (incr >= 1) {
       for (var x = 0; x < clearLines.length; x++) {
         board.splice(clearLines[x], 1);
@@ -576,42 +683,45 @@ window.onload = function playTetris()  {
   }
   //initialize
   function init() {
+    //set Keylisteners
+    window.addEventListener("keyup", keyUp, false);
+    window.addEventListener("keydown", keyDown, false);
     initBoard();
     initLines();
     initPreview();
     genPiece();
   }
-  init();
-  setInterval(function() {
-    if (clearLines == null || clearLines.length == 0) update();
-    else { clearing() };
-  }, 1000/60);
-  setInterval(function() {
-    if (clearLines == null || clearLines.length == 0) listener();
-  }, 1000/30);
-  setInterval(function() {
-    if (clearLines == null || clearLines.length == 0) applyGrav();
-  }, 1000);
-}
-/*
-var pack = [];
-pack.push({
-  player:playerOne,
-  array:board
-});
-socket.emit("array", pack);
-socket.on("oppositeArray", function(data) {
-  console.log(data[0].player + " " + playerOne);
-  if (data[0].player != playerOne) {
-    arr = data[0].array;
-    for (var row = 0; row < BOARD_HEIGHT; row++) {
-      for (var col = 0; col < BOARD_WIDTH; col++) {
-        if (arr[row][col] < 0) {
-          ct2.fillStyle = colours[-arr[row][col] - 1];
-          roundRect(ct2, col * BLOCKSIDE, row * BLOCKSIDE, BLOCKSIDE, BLOCKSIDE, ROUNDING, 1);
-        }
-      }
+  function beginGame() {
+    init();
+    updateHandle = setInterval(function() {
+      if (clearLines == null || clearLines.length == 0) update();
+      else { clearing() };
+    }, 1000/60);
+    listenerHandle = setInterval(function() {
+      if (clearLines == null || clearLines.length == 0) listener();
+    }, 1000/30);
+    gravityHandle = setInterval(function() {
+      updateOpp();
+      if (clearLines == null || clearLines.length == 0) applyGrav();
+    }, 1000);
   }
+  socket.on("oppositeArray", function(data) {
+      drawOpp(data[0]);
+  });
+  socket.on("lineSent", function(data) {
+    linesRecieved += data[0].lines;
+  });
+  socket.on("reset", function() {
+    init();
+  });
+  socket.on("left", function() {
+    init();
+    clearInterval(updateHandle);
+    clearInterval(listenerHandle);
+    clearInterval(gravityHandle);
+    document.getElementById('overlay').style.opacity = 0.7;
+    document.getElementById('start').innerHTML = "Player 2 has left. Please wait.";
+    document.getElementById('start').style.width = "350px";
+    document.getElementById('start').style.disabled = "disabled";
+  });
 }
-});
-*/
